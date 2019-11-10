@@ -1,10 +1,14 @@
 #include <Arduino.h>
 #include "History.h"
+#include "UDPLogger.h"
 
-History::History(int size)
+extern UDPLogger loggit;
+
+History::History(unsigned int size)
 {
     length = size;
-    data = new int[size];
+    data = new  unsigned int[size+1];
+    ma_data = new  unsigned int[size+1];
     current_index = 0;
     entries = 0;
 }
@@ -19,6 +23,7 @@ void History::add(int d)
 {
     data[current_index] = d;
     inc();
+   
     if ( entries < length )
         entries = entries + 1;
 }
@@ -35,18 +40,63 @@ float History::average(void)
     return total/l;
     
 }
-int History::moving_average(int samples)
+unsigned int History::getHistory(unsigned int events, unsigned int *result, unsigned int *max)
+{
+    int index = 0;
+    int m = 0;
+    if ( entries < events )
+        events = entries;
+    
+    for ( int i = 0; i < events ; i++)
+        result[i]=0;
+    
+    index = current_index -1;
+    if ( index < 0 )
+        index = length -1;
+
+    for ( int i = 0 ; i < events ; i++ )
+    {
+            *result = data[index];
+            if ( data[index] > m )
+                m = data[index];
+
+            index = index -1;
+            if ( index < 0 )
+                index = length - 1;
+            result = result + 1;
+    }
+    *max = m;
+    return events;
+}
+int History::last()
+{
+    int index;
+    int answer =0;
+    if ( entries  > 0 )
+    {
+        index = current_index - 1 ;
+        if ( index < 0 )
+            index = length - 1;
+        answer =  data[index];
+    }
+    return answer;
+}
+//claculate the moving avregae of the last 'smaples' number of samples
+float History::moving_average(unsigned int samples)
 {
     int index;
     int total=0;
-    if ( samples > length )
-        samples = length;
+    if ( entries < samples )
+        return 0;
+
+    if ( samples > entries )
+        samples = entries;
     // total the 'samples' previous entries
     index = current_index - 1 ;
     if ( index < 0 )
         index = length - 1;
 
-    for ( int i = 0 ; i < samples ; i++ )
+    for ( unsigned int i = 0 ; i < samples ; i++ )
     {
         total = total + data[index];
         index = index - 1;
@@ -57,17 +107,19 @@ int History::moving_average(int samples)
     return total/samples;
 
 }
-String History::emphasis(int d)
+//  Add HTML emphasis by turning the font red if the value is over 200
+String History::emphasis(int threshold, int d)
 {
     String answer;
-    if ( d > 200 )
+    if ( d > threshold )
       answer = String("<font color='red'>") + String(d) + String("</font>");
     else
       answer = String(d);
 
     return answer;
 }
-String History::list()
+// Ceate a string with a list of values read from the sensor history.
+String History::list(int threshold)
 {
     int index;
     int num;
@@ -85,7 +137,7 @@ String History::list()
     }
     for ( int i = 0 ; i < num;i++)
     {
-        result = result + emphasis(data[index]) + String(",");
+        result = result + emphasis(threshold, data[index]) + String(",");
         index = (index + 1 ) % length;
     }
     result = result + "</p>";
