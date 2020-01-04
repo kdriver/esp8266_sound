@@ -13,12 +13,14 @@ History::History(unsigned int size)
     entries = 0;
 }
 
+//  Increment the iterator, and wrap back to zero
 void History::inc(void)
 {
     current_index = current_index + 1;
     if ( current_index == length )
         current_index = 0;
 }
+// Add a new element, overwriting old elements of more than 'size' elements have been added previously
 void History::add(int d)
 {
     data[current_index] = d;
@@ -27,6 +29,7 @@ void History::add(int d)
     if ( entries < length )
         entries = entries + 1;
 }
+// calculate the average of all of the entries
 float History::average(void)
 {
     int total=0;
