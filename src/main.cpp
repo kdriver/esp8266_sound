@@ -1,5 +1,5 @@
 #include <Arduino.h>
-#include <WiFiCreds_end.h>
+#include <WiFiCreds.h>
 #include <WiFi.h>
 #include <Wire.h>
 #include <WebServer.h>
@@ -24,6 +24,8 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define OFF_THRESHOLD 300
 #define WATCHDOG_INTERVAL 300
 
+
+unsigned long threshold;
 unsigned long epoch;
 unsigned long time_now;
 unsigned long previous_time;
@@ -160,14 +162,13 @@ p_lcd("Searching for WiFi",0,0);
   attachInterrupt(digitalPinToInterrupt(D2),sound,FALLING);
 
 */
+/*
   timer = timerBegin(0,80,true);
   timerAttachInterrupt(timer, &measure, true);
   timerAlarmWrite(timer, 1000000, true);
   timerAlarmEnable(timer);
-
-  pinMode(GPIO_NUM_2, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(GPIO_NUM_2), sound, FALLING);
-
+*/
+  
   p_lcd("start influx",0,0);
 
   tick_influx(String("Initialised_1_0_"+ address),0);
@@ -175,6 +176,9 @@ p_lcd("Searching for WiFi",0,0);
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
   epoch = millis();
   previous_time = epoch;
+
+  threshold = analogRead(A0);
+
   p_lcd("end of setup",0,0);
   Serial.println("setup is finnished\n");
 
@@ -185,32 +189,6 @@ unsigned int events = 0;
 //int last_second_events =0;
 float moving_average;
 
-void IRAM_ATTR measure()
-{
-  char output[50];
-  unsigned int this_second;
-  
-   portENTER_CRITICAL(&timerMux);
-   this_second = events;
-   portEXIT_CRITICAL(&timerMux);
-   history->add(events);
-   events = 0;
-   
-   if ( DEBUG_ON )
-    {
-      sprintf(output,"measure %ld events %d ps  , moving ave %f",millis()/1000,this_second,history->moving_average(5));
-      Serial.println(output);
-    }
-}
-
-// Add 1 to events for every falling edge interrupt event
-void IRAM_ATTR sound()
-{
-    portENTER_CRITICAL(&timerMux);
-    events = events + 1;
-    portEXIT_CRITICAL(&timerMux);
-}
-
 unsigned int choose_scale(unsigned int max)
 {
   unsigned int scale=500;
@@ -219,21 +197,6 @@ unsigned int choose_scale(unsigned int max)
 
   if  ( scale < 100 )
     scale = 100;
-/*  else
-    if ( max < 200 )
-      scale = 200;
-    else
-      if ( max < 500 )
-        scale = 500;
-      else
-      if ( max < 1000 )
-        scale = 1000;
-      else 
-        if ( max < 2500 )
-           scale=2500;
-        else
-          scale = 4000;
-  */    
        return scale;
 }
 void drawHistory()
@@ -271,19 +234,78 @@ void drawHistory()
 }
 unsigned long last_time=millis();
 unsigned long on_for=0;
+
+bool read_analogue(void)
+{
+    int the_diff,abs_value;
+    unsigned int sensor_value;
+    static unsigned int threshold = 1300,the_total=0,abs_total=0;
+    static unsigned int num_samples=0,abs_samples=0,the_average=0,abs_average=0;
+    static unsigned const int max_samples=500,abs_max_samples=500;
+    static unsigned const int boiler_on = 120;
+    bool detected_on = false;
+   
+    sensor_value = analogRead(A0);
+    
+      
+
+    the_diff = sensor_value - threshold;
+    abs_value = abs(the_diff);
+
+      /*Serial.print(sensor_value);
+      Serial.print(" ");
+      Serial.print(threshold);
+      Serial.print(" ");*/
+      
+    
+    the_total = the_total + sensor_value;
+    abs_total = abs_total + abs_value;
+
+    if ( num_samples > max_samples )
+        the_total = the_total - the_average;
+    else
+        num_samples = num_samples + 1;
+
+    if ( abs_samples > abs_max_samples )
+        abs_total = abs_total - abs_average;
+    else
+        abs_samples = abs_samples + 1 ;
+
+    the_average = the_total/num_samples;
+    threshold = the_average;
+    abs_average = abs_total / abs_samples;
+
+    if ( abs_average > boiler_on )
+      detected_on = true;
+    else
+      detected_on = false;
+
+      Serial.print(boiler_on);
+      Serial.print(" ");
+      Serial.print(abs_average);
+      Serial.print(" ");
+      
+      if ( detected_on == true )
+        Serial.println(50);
+      else
+        Serial.println(0);
+      
+    return  detected_on ;
+
+}
 void loop() {
+bool boiler_on = false;
 
         delay(10);
         display.clearDisplay();
         String s;
-
         time_now = millis();
-        moving_average = history->moving_average(5);
-
+        boiler_on = read_analogue();
+        
         if ( time_now - last_time  >  1000 )
         {
           p_lcd(String(time_now/1000),0,8);
-          if ( boiler_status == BOILER_ON )
+          if ( boiler_status == true )
           {
             p_lcd("BOILER ON ",0,0);
             p_lcd("ON for " + String((time_now - boiler_switched_on_time)/1000),0,16);
@@ -293,25 +315,23 @@ void loop() {
             p_lcd("BOILER OFF",0,0);
             p_lcd("was ON for " + String(on_for),0,16);
           }
-          p_lcd(String("mavg ") +String(moving_average),0,24);
-
-          drawHistory();
+          
           last_time = time_now;
           //adc1_config_width(ADC_WIDTH_BIT_10);
           //adc1_config_channel_atten(ADC1_CHANNEL_0,ADC_ATTEN_DB_11);
           //int value = adc1_get_raw(ADC1_CHANNEL_0);
           //int value = analogRead(GPIO_NUM_36);
           //Serial.print("input pin is " + String(value )+ "\n" );
-          s="events " + String(history->last()) + "\n";
+          //s="events " + String(history->last()) + "\n";
           //Serial.println(s);
           //loggit.send(s);
         }
 
 
-        if ( boiler_status == BOILER_OFF  && moving_average > ON_THRESHOLD )
+        if ( (boiler_status == BOILER_OFF) && (boiler_on == true) )
         {
             String text;
-            text = String("Boiler switched ON as moving average is ") + String(moving_average ) + "\n";
+            text = String("Boiler switched ON \n ") ;
             loggit.send(text);
             tell_influx(BOILER_ON,0);
             boiler_status = BOILER_ON;
@@ -320,7 +340,7 @@ void loop() {
             //Serial.println(text);
           
         }
-        if ( boiler_status == BOILER_ON  && moving_average  < OFF_THRESHOLD  )
+        if ( (boiler_status == BOILER_ON)  && ( boiler_on == false ) )
         {
             unsigned int  interval;
             char output[70];
