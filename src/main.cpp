@@ -24,8 +24,6 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 #define OFF_THRESHOLD 300
 #define WATCHDOG_INTERVAL 300
 
-
-unsigned long threshold;
 unsigned long epoch;
 unsigned long time_now;
 unsigned long previous_time;
@@ -35,9 +33,16 @@ unsigned int boiler;
 unsigned int boiler_status= BOILER_OFF;
 unsigned int boiler_switched_on_time=0;
 
+unsigned long last_time=millis();
+unsigned long on_for=0;
+unsigned int threshold = 1300;
+unsigned int boiler_on = 120;
+
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 3600;
 const int   daylightOffset_sec = 3600;
+
+String address = "0.0.0.0";
 
 bool DEBUG_ON=false;
 bool quiet = false;
@@ -138,7 +143,7 @@ p_lcd("Searching for WiFi",0,0);
   
   p_lcd("i'm alive",0,0);   
 
-  String address = WiFi.localIP().toString();
+  address = WiFi.localIP().toString();
   Serial.println("");
   Serial.print("Connected to ");
   Serial.println(ssid);
@@ -176,7 +181,7 @@ p_lcd("Searching for WiFi",0,0);
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
   epoch = millis();
   previous_time = epoch;
-
+//  Just set the threshold to the first reading. We'll average it out later.
   threshold = analogRead(A0);
 
   p_lcd("end of setup",0,0);
@@ -232,32 +237,22 @@ void drawHistory()
     loggit.send(s + String(" scale=") + String(scale) + '\n');
     display.display();
 }
-unsigned long last_time=millis();
-unsigned long on_for=0;
+
 
 bool read_analogue(void)
 {
     int the_diff,abs_value;
     unsigned int sensor_value;
-    static unsigned int threshold = 1300,the_total=0,abs_total=0;
+    static unsigned int the_total=0,abs_total=0;
     static unsigned int num_samples=0,abs_samples=0,the_average=0,abs_average=0;
-    static unsigned const int max_samples=500,abs_max_samples=500;
-    static unsigned const int boiler_on = 120;
+    static unsigned const int max_samples=250,abs_max_samples=250;
     bool detected_on = false;
    
     sensor_value = analogRead(A0);
-    
-      
 
     the_diff = sensor_value - threshold;
     abs_value = abs(the_diff);
 
-      /*Serial.print(sensor_value);
-      Serial.print(" ");
-      Serial.print(threshold);
-      Serial.print(" ");*/
-      
-    
     the_total = the_total + sensor_value;
     abs_total = abs_total + abs_value;
 
@@ -272,7 +267,11 @@ bool read_analogue(void)
         abs_samples = abs_samples + 1 ;
 
     the_average = the_total/num_samples;
+    // set the threshold to measure the variation to the long term average.
+    // Basically the audio signal modulates the threshold value above and below the threshold. Threshold is essntially a bias figure
+    //  Overall, the  modulated value should be above the threshold as much as below.
     threshold = the_average;
+    // The abs average is a measure of how much the audio has mogulated the threshold value
     abs_average = abs_total / abs_samples;
 
     if ( abs_average > boiler_on )
@@ -283,6 +282,8 @@ bool read_analogue(void)
       Serial.print(boiler_on);
       Serial.print(" ");
       Serial.print(abs_average);
+      Serial.print(" ");
+      Serial.print(threshold);
       Serial.print(" ");
       
       if ( detected_on == true )
@@ -304,7 +305,7 @@ bool boiler_on = false;
         
         if ( time_now - last_time  >  1000 )
         {
-          p_lcd(String(time_now/1000),0,8);
+          p_lcd(address + " " + String(time_now/1000),0,8);
           if ( boiler_status == true )
           {
             p_lcd("BOILER ON ",0,0);
@@ -315,6 +316,7 @@ bool boiler_on = false;
             p_lcd("BOILER OFF",0,0);
             p_lcd("was ON for " + String(on_for),0,16);
           }
+           p_lcd("threshold " + String(threshold),0,24);
           
           last_time = time_now;
           //adc1_config_width(ADC_WIDTH_BIT_10);
