@@ -9,10 +9,11 @@
             "includePath": [
                 "/Users/keith/Documents/dev/esp8266_sound/include",
                 "/Users/keith/Documents/dev/esp8266_sound/src",
-                "/Users/keith/.platformio/packages/framework-arduinoespressif32/libraries/WebServer/src",
-                "/Users/keith/.platformio/packages/framework-arduinoespressif32/libraries/FS/src",
                 "/Users/keith/.platformio/packages/framework-arduinoespressif32/libraries/HTTPClient/src",
                 "/Users/keith/.platformio/packages/framework-arduinoespressif32/libraries/WiFiClientSecure/src",
+                "/Users/keith/.platformio/lib/ESP Async WebServer_ID306/src",
+                "/Users/keith/.platformio/packages/framework-arduinoespressif32/libraries/FS/src",
+                "/Users/keith/.platformio/lib/AsyncTCP_ID1826/src",
                 "/Users/keith/.platformio/lib/Adafruit SSD1306_ID135",
                 "/Users/keith/.platformio/packages/framework-arduinoespressif32/libraries/Wire/src",
                 "/Users/keith/.platformio/lib/Adafruit GFX Library_ID13",
@@ -98,6 +99,7 @@
                 "/Users/keith/.platformio/packages/framework-arduinoespressif32/libraries/SimpleBLE/src",
                 "/Users/keith/.platformio/packages/framework-arduinoespressif32/libraries/Ticker/src",
                 "/Users/keith/.platformio/packages/framework-arduinoespressif32/libraries/Update/src",
+                "/Users/keith/.platformio/packages/framework-arduinoespressif32/libraries/WebServer/src",
                 "/Users/keith/.platformio/packages/tool-unity",
                 ""
             ],
@@ -106,10 +108,11 @@
                 "path": [
                     "/Users/keith/Documents/dev/esp8266_sound/include",
                     "/Users/keith/Documents/dev/esp8266_sound/src",
-                    "/Users/keith/.platformio/packages/framework-arduinoespressif32/libraries/WebServer/src",
-                    "/Users/keith/.platformio/packages/framework-arduinoespressif32/libraries/FS/src",
                     "/Users/keith/.platformio/packages/framework-arduinoespressif32/libraries/HTTPClient/src",
                     "/Users/keith/.platformio/packages/framework-arduinoespressif32/libraries/WiFiClientSecure/src",
+                    "/Users/keith/.platformio/lib/ESP Async WebServer_ID306/src",
+                    "/Users/keith/.platformio/packages/framework-arduinoespressif32/libraries/FS/src",
+                    "/Users/keith/.platformio/lib/AsyncTCP_ID1826/src",
                     "/Users/keith/.platformio/lib/Adafruit SSD1306_ID135",
                     "/Users/keith/.platformio/packages/framework-arduinoespressif32/libraries/Wire/src",
                     "/Users/keith/.platformio/lib/Adafruit GFX Library_ID13",
@@ -195,6 +198,7 @@
                     "/Users/keith/.platformio/packages/framework-arduinoespressif32/libraries/SimpleBLE/src",
                     "/Users/keith/.platformio/packages/framework-arduinoespressif32/libraries/Ticker/src",
                     "/Users/keith/.platformio/packages/framework-arduinoespressif32/libraries/Update/src",
+                    "/Users/keith/.platformio/packages/framework-arduinoespressif32/libraries/WebServer/src",
                     "/Users/keith/.platformio/packages/tool-unity",
                     ""
                 ]

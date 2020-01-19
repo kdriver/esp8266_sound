@@ -1,15 +1,14 @@
 #include <Arduino.h>
-#include <WiFiCreds.h>
+#include <WiFiCreds_end.h>
 #include <WiFi.h>
 #include <Wire.h>
-#include <ESPAsyncWebServer.h>
+#include <WebServer.h>
 #include <HTTPClient.h>
 #include "History.h"
 #include "UDPLogger.h"
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <driver/adc.h>
-#include <Webtext.h>
 
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 32 // OLED display height, in pixels
@@ -33,24 +32,15 @@ unsigned long since_epoch;
 unsigned int boiler;
 unsigned int boiler_status= BOILER_OFF;
 unsigned int boiler_switched_on_time=0;
-unsigned int abs_average;
-char web_page[2000];
-
-unsigned long last_time=millis();
-unsigned long on_for=0;
-unsigned int threshold = 1300;
-unsigned int boiler_on = 120;
 
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 3600;
 const int   daylightOffset_sec = 3600;
 
-String address = "0.0.0.0";
-
 bool DEBUG_ON=false;
 bool quiet = false;
 
-AsyncWebServer server(80);
+WebServer server(80);
 void handleRoot();              // function prototypes for HTTP handlers
 void handleTest();
 void handleNotFound();
@@ -114,13 +104,6 @@ void p_lcd(String s,unsigned int x,unsigned int y)
   display.println(s);
   display.display();
 }
-
-
-/*
-
-SETUP
-
-*/
 void setup() {
 char prog[] = {'|','/','-','\\'};
 int rot=0;
@@ -153,37 +136,16 @@ p_lcd("Searching for WiFi",0,0);
   
   p_lcd("i'm alive",0,0);   
 
-  address = WiFi.localIP().toString();
+  String address = WiFi.localIP().toString();
   Serial.println("");
   Serial.print("Connected to ");
   Serial.println(ssid);
   Serial.print("IP address: ");
   Serial.println(address);
 
-
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-    sprintf(web_page,index_html,abs_average,boiler_on,boiler_status==0?"OFF":"ON");
-    request->send(200, "text/html", web_page);});               // Call the 'handleRoot' function when a client requests URI "/"
-  
-  server.on("/get", HTTP_GET, [] (AsyncWebServerRequest *request) {
-    String inputMessage;
-    String inputParam;
-    // GET input1 value on <ESP_IP>/get?input1=<inputMessage>
-    if (request->hasParam(PARAM_INPUT_1)) {
-      inputMessage = request->getParam(PARAM_INPUT_1)->value();
-      inputParam = PARAM_INPUT_1;
-      boiler_on = inputMessage.toInt();
-    }
-    else {
-      inputMessage = "No message sent";
-      inputParam = "none";
-    }
-    Serial.println(inputMessage);
-    request->send(200, "text/html", "HTTP GET request sent to your ESP on input field (" 
-                                     + inputParam + ") with value: " + inputMessage +
-                                     "<br><a href=\"/\">Return to Home Page</a>");
-  });
-  server.onNotFound(notFound);
+  server.on("/", handleRoot);               // Call the 'handleRoot' function when a client requests URI "/"
+  server.on("/test", handleTest);               // Call the 'handleRoot' function when a client requests URI "/"
+  server.onNotFound(handleNotFound);        // When a client requests an unknown URI (i.e. something other than "/"), call function "handleNotFound"
   server.begin();  
 
   loggit.init();
@@ -198,13 +160,14 @@ p_lcd("Searching for WiFi",0,0);
   attachInterrupt(digitalPinToInterrupt(D2),sound,FALLING);
 
 */
-/*
   timer = timerBegin(0,80,true);
   timerAttachInterrupt(timer, &measure, true);
   timerAlarmWrite(timer, 1000000, true);
   timerAlarmEnable(timer);
-*/
-  
+
+  pinMode(GPIO_NUM_2, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(GPIO_NUM_2), sound, FALLING);
+
   p_lcd("start influx",0,0);
 
   tick_influx(String("Initialised_1_0_"+ address),0);
@@ -212,9 +175,6 @@ p_lcd("Searching for WiFi",0,0);
   configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
   epoch = millis();
   previous_time = epoch;
-//  Just set the threshold to the first reading. We'll average it out later.
-  threshold = analogRead(A0);
-
   p_lcd("end of setup",0,0);
   Serial.println("setup is finnished\n");
 
@@ -225,6 +185,32 @@ unsigned int events = 0;
 //int last_second_events =0;
 float moving_average;
 
+void IRAM_ATTR measure()
+{
+  char output[50];
+  unsigned int this_second;
+  
+   portENTER_CRITICAL(&timerMux);
+   this_second = events;
+   portEXIT_CRITICAL(&timerMux);
+   history->add(events);
+   events = 0;
+   
+   if ( DEBUG_ON )
+    {
+      sprintf(output,"measure %ld events %d ps  , moving ave %f",millis()/1000,this_second,history->moving_average(5));
+      Serial.println(output);
+    }
+}
+
+// Add 1 to events for every falling edge interrupt event
+void IRAM_ATTR sound()
+{
+    portENTER_CRITICAL(&timerMux);
+    events = events + 1;
+    portEXIT_CRITICAL(&timerMux);
+}
+
 unsigned int choose_scale(unsigned int max)
 {
   unsigned int scale=500;
@@ -233,6 +219,21 @@ unsigned int choose_scale(unsigned int max)
 
   if  ( scale < 100 )
     scale = 100;
+/*  else
+    if ( max < 200 )
+      scale = 200;
+    else
+      if ( max < 500 )
+        scale = 500;
+      else
+      if ( max < 1000 )
+        scale = 1000;
+      else 
+        if ( max < 2500 )
+           scale=2500;
+        else
+          scale = 4000;
+  */    
        return scale;
 }
 void drawHistory()
@@ -268,76 +269,21 @@ void drawHistory()
     loggit.send(s + String(" scale=") + String(scale) + '\n');
     display.display();
 }
-
-
-bool read_analogue(void)
-{
-    int the_diff,abs_value;
-    unsigned int sensor_value;
-    static unsigned int the_total=0,abs_total=0;
-    static unsigned int num_samples=0,abs_samples=0,the_average=0;
-    static unsigned const int max_samples=250,abs_max_samples=250;
-    bool detected_on = false;
-   
-    sensor_value = analogRead(A0);
-
-    the_diff = sensor_value - threshold;
-    abs_value = abs(the_diff);
-
-    the_total = the_total + sensor_value;
-    abs_total = abs_total + abs_value;
-
-    if ( num_samples > max_samples )
-        the_total = the_total - the_average;
-    else
-        num_samples = num_samples + 1;
-
-    if ( abs_samples > abs_max_samples )
-        abs_total = abs_total - abs_average;
-    else
-        abs_samples = abs_samples + 1 ;
-
-    the_average = the_total/num_samples;
-    // set the threshold to measure the variation to the long term average.
-    // Basically the audio signal modulates the threshold value above and below the threshold. Threshold is essntially a bias figure
-    //  Overall, the  modulated value should be above the threshold as much as below.
-    threshold = the_average;
-    // The abs average is a measure of how much the audio has mogulated the threshold value
-    abs_average = abs_total / abs_samples;
-
-    if ( abs_average > boiler_on )
-      detected_on = true;
-    else
-      detected_on = false;
-
-      Serial.print(boiler_on);
-      Serial.print(" ");
-      Serial.print(abs_average);
-      Serial.print(" ");
-      Serial.print(threshold);
-      Serial.print(" ");
-      
-      if ( detected_on == true )
-        Serial.println(50);
-      else
-        Serial.println(0);
-      
-    return  detected_on ;
-
-}
+unsigned long last_time=millis();
+unsigned long on_for=0;
 void loop() {
-bool boiler_on = false;
 
         delay(10);
         display.clearDisplay();
         String s;
+
         time_now = millis();
-        boiler_on = read_analogue();
-        
+        moving_average = history->moving_average(5);
+
         if ( time_now - last_time  >  1000 )
         {
-          p_lcd(address + " " + String(time_now/1000),0,8);
-          if ( boiler_status == true )
+          p_lcd(String(time_now/1000),0,8);
+          if ( boiler_status == BOILER_ON )
           {
             p_lcd("BOILER ON ",0,0);
             p_lcd("ON for " + String((time_now - boiler_switched_on_time)/1000),0,16);
@@ -347,24 +293,25 @@ bool boiler_on = false;
             p_lcd("BOILER OFF",0,0);
             p_lcd("was ON for " + String(on_for),0,16);
           }
-           p_lcd("threshold " + String(threshold),0,24);
-          
+          p_lcd(String("mavg ") +String(moving_average),0,24);
+
+          drawHistory();
           last_time = time_now;
           //adc1_config_width(ADC_WIDTH_BIT_10);
           //adc1_config_channel_atten(ADC1_CHANNEL_0,ADC_ATTEN_DB_11);
           //int value = adc1_get_raw(ADC1_CHANNEL_0);
           //int value = analogRead(GPIO_NUM_36);
           //Serial.print("input pin is " + String(value )+ "\n" );
-          //s="events " + String(history->last()) + "\n";
+          s="events " + String(history->last()) + "\n";
           //Serial.println(s);
           //loggit.send(s);
         }
 
 
-        if ( (boiler_status == BOILER_OFF) && (boiler_on == true) )
+        if ( boiler_status == BOILER_OFF  && moving_average > ON_THRESHOLD )
         {
             String text;
-            text = String("Boiler switched ON \n ") ;
+            text = String("Boiler switched ON as moving average is ") + String(moving_average ) + "\n";
             loggit.send(text);
             tell_influx(BOILER_ON,0);
             boiler_status = BOILER_ON;
@@ -373,7 +320,7 @@ bool boiler_on = false;
             //Serial.println(text);
           
         }
-        if ( (boiler_status == BOILER_ON)  && ( boiler_on == false ) )
+        if ( boiler_status == BOILER_ON  && moving_average  < OFF_THRESHOLD  )
         {
             unsigned int  interval;
             char output[70];
@@ -386,10 +333,10 @@ bool boiler_on = false;
             //Serial.println(output);
         }
 
-        //server.handleClient(); 
+        server.handleClient(); 
 
 }      
-/*
+
 void handleRoot() {
 
   String document;
@@ -409,4 +356,3 @@ void handleTest() {
 void handleNotFound(){
   server.send(404, "text/plain", "404: Not found"); // Send HTTP status 404 (Not Found) when there's no handler for the URI in the request
 }
-*/
