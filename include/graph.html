@@ -1,0 +1,32 @@
+<!DOCTYPE HTML><html><head>
+    <title>ESP Input Form</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    </head>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.7.2/Chart.js"></script>
+    <body>
+    <canvas id="myChart" width="400" height="400"></canvas>
+    Some text
+<script>
+    var ctx = document.getElementById('myChart').getContext('2d');
+    var myChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: ['Red', 'Blue', 'Yellow', 'Green', 'Purple', 'Orange'],
+            datasets: [{
+                label: '# of Votes',
+                data: [12, 19, 3, 5, 2, 3]
+            }]
+        },
+        options: {
+            scales: {
+                yAxes: [{
+                    ticks: {
+                        beginAtZero: true
+                    }
+                }]
+            }
+        }
+    });
+    </script>
+    </body>
+    </html>

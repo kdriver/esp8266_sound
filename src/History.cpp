@@ -121,12 +121,22 @@ String History::emphasis(int threshold, int d)
 
     return answer;
 }
+unsigned int History::num_entries(void)
+{
+    if ( entries < length )
+        return entries;
+    else
+    {
+        return length;
+    }
+    
+}
 // Ceate a string with a list of values read from the sensor history.
-String History::list(int threshold)
+String History::list()
 {
     int index;
     int num;
-    String result("<p>");
+    String result("[");
 
     if ( entries < length )
     {
@@ -140,10 +150,15 @@ String History::list(int threshold)
     }
     for ( int i = 0 ; i < num;i++)
     {
-        result = result + emphasis(threshold, data[index]) + String(",");
+        if ( (i + 1) == num  )
+            result = result +  data[index];
+        else
+            result = result +  data[index]  + String(",");
+            
+        
         index = (index + 1 ) % length;
     }
-    result = result + "</p>";
+    result = result + "]";
     return result;
     
 }

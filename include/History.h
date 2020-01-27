@@ -9,7 +9,8 @@ class History {
         float average(void);
         int last(void);
         float moving_average(unsigned int samples);
-        String list(int threshold);
+        String list();
+        unsigned int num_entries(void);
         unsigned int getHistory(unsigned int len,unsigned int *data,unsigned int *max);
     private:
         void inc(void);

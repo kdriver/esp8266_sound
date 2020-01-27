@@ -1,5 +1,5 @@
 #include <Arduino.h>
-#include <WiFiCreds.h>
+#include <WiFiCreds_End.h>
 #include <WiFi.h>
 #include <Wire.h>
 #include <ESPAsyncWebServer.h>
@@ -10,6 +10,7 @@
 #include <Adafruit_SSD1306.h>
 #include <driver/adc.h>
 #include <Webtext.h>
+
 
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
 #define SCREEN_HEIGHT 32 // OLED display height, in pixels
@@ -34,12 +35,13 @@ unsigned int boiler;
 unsigned int boiler_status= BOILER_OFF;
 unsigned int boiler_switched_on_time=0;
 unsigned int abs_average;
-char web_page[2000];
+char web_page[8000];
+unsigned char historic_readings[1000];
 
 unsigned long last_time=millis();
 unsigned long on_for=0;
 unsigned int threshold = 1300;
-unsigned int boiler_on = 120;
+unsigned int boiler_on_threshold = 120;
 
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 3600;
@@ -59,12 +61,12 @@ void handleNotFound();
 UDPLogger loggit("192.168.1.161",8787);
 
 
-int post_it(String payload )
+int post_it(String payload ,String db)
 {
     HTTPClient http;
     int response;
     //Serial.println("post to influx\n");
-    http.begin("http://192.168.1.161:8086/write?db=boiler_sound");\
+    http.begin(String("http://192.168.1.161:8086/write?db=")+db);
     http.addHeader("Content-Type","text/plain");
     response = http.POST(payload);
 
@@ -83,9 +85,15 @@ void tell_influx(unsigned int status, unsigned int time_interval)
   payload = payload + ",interval_mins=" + String(time_interval/60);
   payload = payload + ",interval_secs=" + String(time_interval%60);
   payload = payload + ",value=" + String(status);
-  post_it(payload);
+  post_it(payload,"boiler_sound");
   //Serial.print(response);
   
+}
+void diag_influx(unsigned int sound)
+{
+  String payload;
+  payload = "boiler_sound value=" + String(sound);
+  post_it(payload,"boiler_diag");
 }
 
 void tick_influx(String text,unsigned int value)
@@ -93,15 +101,14 @@ void tick_influx(String text,unsigned int value)
     String payload;
     //int response;
     payload = "boiler_iot,lifecycle=" + text + " value=" + String(value);
-    post_it(payload);
+    post_it(payload,"boiler_sound");
     //Serial.print(response); 
- 
 }
 
 void IRAM_ATTR sound();
 void IRAM_ATTR measure();
 
-History *history = new History(30);
+History *history = new History(300);
 
 hw_timer_t *timer=NULL;
 portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
@@ -127,6 +134,7 @@ int rot=0;
 String c;
 
 Serial.begin(9600);
+
 
 if(!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) { // Address 0x3C for 128x32
     Serial.println(F("SSD1306 allocation failed"));
@@ -162,9 +170,27 @@ p_lcd("Searching for WiFi",0,0);
 
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-    sprintf(web_page,index_html,abs_average,boiler_on,boiler_status==0?"OFF":"ON");
+    sprintf(web_page,index_html,abs_average,boiler_on_threshold,boiler_status==0?"OFF":"ON");
     request->send(200, "text/html", web_page);});               // Call the 'handleRoot' function when a client requests URI "/"
-  
+
+  server.on("/graph", HTTP_GET, [](AsyncWebServerRequest *request){
+    String the_data;
+    String labels;
+    int length = 0;
+    the_data = history->list();
+    length = history->num_entries()-1;
+    labels = String("[");
+    for ( int i =0; i < length; i++ )
+    {
+        if ( (i+1) == length )
+         labels= labels + String(i);
+        else
+         labels= labels + String(i) + String(",");
+    }
+    labels = labels + String("]");
+    sprintf(web_page,graph,labels.c_str(),the_data.c_str());
+    request->send(200, "text/html", web_page);});     
+
   server.on("/get", HTTP_GET, [] (AsyncWebServerRequest *request) {
     String inputMessage;
     String inputParam;
@@ -172,7 +198,8 @@ p_lcd("Searching for WiFi",0,0);
     if (request->hasParam(PARAM_INPUT_1)) {
       inputMessage = request->getParam(PARAM_INPUT_1)->value();
       inputParam = PARAM_INPUT_1;
-      boiler_on = inputMessage.toInt();
+      boiler_on_threshold = inputMessage.toInt();
+      
     }
     else {
       inputMessage = "No message sent";
@@ -185,9 +212,9 @@ p_lcd("Searching for WiFi",0,0);
   });
   server.onNotFound(notFound);
   server.begin();  
-
   loggit.init();
   loggit.send("up and running\n");
+ 
   // sgart a timer to count the number of events each second.
 /* 8266
   timer1_attachInterrupt(measure);
@@ -305,12 +332,12 @@ bool read_analogue(void)
     // The abs average is a measure of how much the audio has mogulated the threshold value
     abs_average = abs_total / abs_samples;
 
-    if ( abs_average > boiler_on )
+    if ( abs_average > boiler_on_threshold )
       detected_on = true;
     else
       detected_on = false;
 
-      Serial.print(boiler_on);
+      Serial.print(boiler_on_threshold);
       Serial.print(" ");
       Serial.print(abs_average);
       Serial.print(" ");
@@ -334,7 +361,7 @@ bool boiler_on = false;
         time_now = millis();
         boiler_on = read_analogue();
         
-        if ( time_now - last_time  >  1000 )
+        if ( (time_now - last_time)  >  2000 )
         {
           p_lcd(address + " " + String(time_now/1000),0,8);
           if ( boiler_status == true )
@@ -348,6 +375,8 @@ bool boiler_on = false;
             p_lcd("was ON for " + String(on_for),0,16);
           }
            p_lcd("threshold " + String(threshold),0,24);
+           history->add(abs_average);
+           diag_influx(abs_average);
           
           last_time = time_now;
           //adc1_config_width(ADC_WIDTH_BIT_10);

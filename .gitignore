@@ -6,3 +6,6 @@
 .vscode/launch.json
 .vscode/ipch
 >>>>>>> 9ae5fc83b09c372a44d01b5e4783ccefed9dbdc3
+include/tw.html
+include/one.html
+include/myChart.js
