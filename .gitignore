@@ -9,3 +9,6 @@
 include/tw.html
 include/one.html
 include/myChart.js
+.vscode/c_cpp_properties.json
+.vscode/extensions.json
+.vscode/launch.json

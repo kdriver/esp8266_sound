@@ -43,15 +43,35 @@ const char index_html[] PROGMEM = R"rawliteral(
   <meta name="viewport" content="width=device-width, initial-scale=1">
   </head>
   <body>
-  abs_average %d boiler_on_threshold %d  boiler_status %s
+  abs_average %d boiler_status %s
   </p>
   <form action="/get">
-    Enter a value : <input type="text" name="boiler_on_threshold">
-    <input type="submit" value="Submit">
+    On Threshold  : <input type="text" name="boiler_on_threshold">
+    <input type="submit" value="Submit"> current = %d
+  </form><br>
+  <form action="/get">
+    Loop delay    : <input type="text" name="loop_delay">
+    <input type="submit" value="Submit"> current = %d
+  </form><br>
+  <form action="/get">
+    Sample Period : <input type="text" name="sample_period">
+    <input type="submit" value="Submit"> current = %d
+  </form><br>
+  <form action="/get">
+    Sample Average : <input type="text" name="sample_average">
+    <input type="submit" value="Submit"> current = %d
+  </form><br>
+  <form action="/get">
+    threshold 1 : <input type="text" name="boiler_on_threshold_1">
+    <input type="submit" value="Submit"> current = %d
   </form><br>
 </body></html>)rawliteral";
 
 const char* PARAM_INPUT_1 = "boiler_on_threshold";
+const char* PARAM_INPUT_2 = "loop_delay";
+const char* PARAM_INPUT_3 = "sample_period";
+const char* PARAM_INPUT_4 = "sample_average";
+const char* PARAM_INPUT_5 = "boiler_on_threshold_1";
 
 void notFound(AsyncWebServerRequest *request) {
   request->send(404, "text/plain", "Not found");
