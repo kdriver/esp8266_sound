@@ -55,7 +55,7 @@ unsigned int loop_delay = 30;
 unsigned int sample_period = 50;
 unsigned int sample_average = 30;
 unsigned int boiler_on_threshold = 120;
-unsigned int boiler_on_threshold_1 = 900;
+unsigned int boiler_on_threshold_1 = 1400;
 
 AsyncWebServer server(80);
 void handleRoot();              // function prototypes for HTTP handlers
@@ -472,7 +472,10 @@ bool boiler_on = false;
             char output[70];
             interval = (time_now - boiler_switched_on_time)/1000;
             on_for = interval;
-            tell_influx(BOILER_OFF,interval);
+            if ( interval > 5 )
+            {
+              tell_influx(BOILER_OFF,interval);
+            }
             boiler_status = BOILER_OFF;
             sprintf(output,"boiler was on for %d seconds \n",interval);
             loggit.send(output);
