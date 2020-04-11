@@ -42,7 +42,6 @@ unsigned char historic_readings[1000];
 unsigned long last_time=millis();
 unsigned long on_for=0;
 unsigned int threshold = 1300;
-unsigned int boiler_on_threshold = 120;
 
 const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 3600;
@@ -52,6 +51,12 @@ String address = "0.0.0.0";
 
 bool DEBUG_ON=false;
 bool quiet = false;
+
+unsigned int loop_delay = 50;
+unsigned int sample_period = 50;
+unsigned int sample_average = 30;
+unsigned int boiler_on_threshold = 120;
+unsigned int boiler_on_threshold_1 = 1800;
 
 AsyncWebServer server(80);
 void handleRoot();              // function prototypes for HTTP handlers
@@ -91,10 +96,12 @@ void tell_influx(unsigned int status, unsigned int time_interval)
   //Serial.print(response);
   
 }
-void diag_influx(unsigned int sound)
+void diag_influx(unsigned int sound, unsigned int boiler_status)
 {
   String payload;
   payload = "boiler_sound value=" + String(sound);
+  payload = payload + ",working=" + String(boiler_status==BOILER_ON?1:0);
+  loggit.send(payload + String("\n"));
   post_it(payload,"boiler_diag");
 }
 
@@ -107,13 +114,42 @@ void tick_influx(String text,unsigned int value)
     //Serial.print(response); 
 }
 
-void IRAM_ATTR sound();
-void IRAM_ATTR measure();
-
-History *history = new History(300);
-
 hw_timer_t *timer=NULL;
 portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
+History *history = new History(300);
+History *pp_history = new History(200);
+
+void IRAM_ATTR sound();
+void IRAM_ATTR measureit();
+unsigned long measure_interval = sample_period;
+unsigned int measure() {
+  // called on interrupt
+  unsigned int max_val = 0;
+  unsigned int min_val = 1024;
+  unsigned long start = millis();
+  unsigned int reading;
+  unsigned int pp;
+
+  while ( millis() < ( start + measure_interval ))
+  {
+      reading = analogRead(A0);
+      if ( reading < 5000 )
+      {
+         if ( reading > max_val )
+             max_val = reading;
+         if ( reading < min_val )
+            min_val = reading;
+      }
+  }
+  // work out the peak to peak value measure over the interval
+  pp = max_val - min_val;
+
+  // record it in the history
+  portENTER_CRITICAL_ISR(&timerMux);
+  pp_history->add(pp);
+  portEXIT_CRITICAL_ISR(&timerMux);
+  return pp;
+}
 
 void p_lcd(String s,unsigned int x,unsigned int y)
 {
@@ -123,12 +159,8 @@ void p_lcd(String s,unsigned int x,unsigned int y)
   display.println(s);
   display.display();
 }
-
-
 /*
-
 SETUP
-
 */
 void setup() {
 char prog[] = {'|','/','-','\\'};
@@ -191,15 +223,15 @@ p_lcd("Searching for WiFi",0,0);
     MDNS.addService("http", "tcp", 80);
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-    sprintf(web_page,index_html,abs_average,boiler_on_threshold,boiler_status==0?"OFF":"ON");
+    sprintf(web_page,index_html,abs_average,boiler_status==0?"OFF":"ON",boiler_on_threshold,loop_delay,sample_period,sample_average,boiler_on_threshold_1);
     request->send(200, "text/html", web_page);});               // Call the 'handleRoot' function when a client requests URI "/"
 
   server.on("/graph", HTTP_GET, [](AsyncWebServerRequest *request){
     String the_data;
     String labels;
     int length = 0;
-    the_data = history->list();
-    length = history->num_entries()-1;
+    the_data = pp_history->list();
+    length = pp_history->num_entries()-1;
     labels = String("[");
     for ( int i =0; i < length; i++ )
     {
@@ -216,15 +248,32 @@ p_lcd("Searching for WiFi",0,0);
     String inputMessage;
     String inputParam;
     // GET input1 value on <ESP_IP>/get?input1=<inputMessage>
+    inputMessage = "No message sent";
+    inputParam = "none";
     if (request->hasParam(PARAM_INPUT_1)) {
       inputMessage = request->getParam(PARAM_INPUT_1)->value();
       inputParam = PARAM_INPUT_1;
       boiler_on_threshold = inputMessage.toInt();
-      
     }
-    else {
-      inputMessage = "No message sent";
-      inputParam = "none";
+    if (request->hasParam(PARAM_INPUT_2)) {
+      inputMessage = request->getParam(PARAM_INPUT_2)->value();
+      inputParam = PARAM_INPUT_2;
+      loop_delay = inputMessage.toInt();
+    }
+    if (request->hasParam(PARAM_INPUT_3)) {
+      inputMessage = request->getParam(PARAM_INPUT_3)->value();
+      inputParam = PARAM_INPUT_3;
+      sample_period = inputMessage.toInt();
+    }
+    if (request->hasParam(PARAM_INPUT_4)) {
+      inputMessage = request->getParam(PARAM_INPUT_4)->value();
+      inputParam = PARAM_INPUT_4;
+      sample_average = inputMessage.toInt();
+    }
+     if (request->hasParam(PARAM_INPUT_5)) {
+      inputMessage = request->getParam(PARAM_INPUT_5)->value();
+      inputParam = PARAM_INPUT_5;
+      boiler_on_threshold_1 = inputMessage.toInt();
     }
     Serial.println(inputMessage);
     request->send(200, "text/html", "HTTP GET request sent to your ESP on input field (" 
@@ -317,67 +366,41 @@ void drawHistory()
 }
 
 
-bool read_analogue(void)
+bool read_analogue()
 {
-    int the_diff,abs_value;
-    unsigned int sensor_value;
-    static unsigned int the_total=0,abs_total=0;
-    static unsigned int num_samples=0,abs_samples=0,the_average=0;
-    static unsigned const int max_samples=250,abs_max_samples=250;
+    int ma;
     bool detected_on = false;
-   
-    sensor_value = analogRead(A0);
 
-    the_diff = sensor_value - threshold;
-    abs_value = abs(the_diff);
-
-    the_total = the_total + sensor_value;
-    abs_total = abs_total + abs_value;
-
-    if ( num_samples > max_samples )
-        the_total = the_total - the_average;
-    else
-        num_samples = num_samples + 1;
-
-    if ( abs_samples > abs_max_samples )
-        abs_total = abs_total - abs_average;
-    else
-        abs_samples = abs_samples + 1 ;
-
-    the_average = the_total/num_samples;
-    // set the threshold to measure the variation to the long term average.
-    // Basically the audio signal modulates the threshold value above and below the threshold. Threshold is essntially a bias figure
-    //  Overall, the  modulated value should be above the threshold as much as below.
-    threshold = the_average;
-    // The abs average is a measure of how much the audio has mogulated the threshold value
-    abs_average = abs_total / abs_samples;
-
-    if ( abs_average > boiler_on_threshold )
-      detected_on = true;
-    else
-      detected_on = false;
-
-      Serial.print(boiler_on_threshold);
+      Serial.print(measure());
       Serial.print(" ");
-      Serial.print(abs_average);
+      ma = pp_history->moving_average(sample_average);
+      Serial.print(ma);
       Serial.print(" ");
-      Serial.print(threshold);
-      Serial.print(" ");
-      
-      if ( detected_on == true )
-        Serial.println(50);
+      if  ( ma > boiler_on_threshold_1 )
+      {
+        Serial.println(boiler_on_threshold_1);
+        detected_on = true;
+      }
       else
-        Serial.println(0);
+      {
+          Serial.println(0);
+          detected_on = false;
+      }
       
     return  detected_on ;
 
 }
+
+
+
 void loop() {
 bool boiler_on = false;
 
-        delay(10);
+
+        delay(loop_delay);
         display.clearDisplay();
         String s;
+        int ma;
         time_now = millis();
         boiler_on = read_analogue();
         
@@ -395,8 +418,9 @@ bool boiler_on = false;
             p_lcd("was ON for " + String(on_for),0,16);
           }
            p_lcd("threshold " + String(threshold),0,24);
+           ma = pp_history->moving_average(sample_average);
            history->add(abs_average);
-           diag_influx(abs_average);
+           diag_influx(ma,boiler_status);
           
           last_time = time_now;
           //adc1_config_width(ADC_WIDTH_BIT_10);
@@ -428,7 +452,10 @@ bool boiler_on = false;
             char output[70];
             interval = (time_now - boiler_switched_on_time)/1000;
             on_for = interval;
-            tell_influx(BOILER_OFF,interval);
+            if ( interval > 5 )
+            {
+              tell_influx(BOILER_OFF,interval);
+            }
             boiler_status = BOILER_OFF;
             sprintf(output,"boiler was on for %d seconds \n",interval);
             loggit.send(output);
