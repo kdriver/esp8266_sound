@@ -1,5 +1,5 @@
 #include <Arduino.h>
-#include <WiFiCreds_End.h>
+#include <WiFiCreds.h>
 #include <WiFi.h>
 #include <Wire.h>
 #include <ESPAsyncWebServer.h>
@@ -10,6 +10,7 @@
 #include <Adafruit_SSD1306.h>
 #include <driver/adc.h>
 #include <Webtext.h>
+#include <ESPmDNS.h>
 
 
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
@@ -58,7 +59,7 @@ void handleTest();
 void handleNotFound();
 
 
-UDPLogger loggit("192.168.1.161",8787);
+UDPLogger loggit("192.168.0.3",8787);
 
 
 int post_it(String payload ,String db)
@@ -66,10 +67,11 @@ int post_it(String payload ,String db)
     HTTPClient http;
     int response;
     //Serial.println("post to influx\n");
-    http.begin(String("http://192.168.1.161:8086/write?db=")+db);
+    http.begin(String("http://192.168.0.3:8086/write?db=")+db);
     http.addHeader("Content-Type","text/plain");
     response = http.POST(payload);
 
+    loggit.send(db + " " + payload + "\n");
     if ( response > 250 )
       loggit.send("InfluxDb POST error response " + String(response) + "\n");
 
@@ -168,6 +170,25 @@ p_lcd("Searching for WiFi",0,0);
   Serial.print("IP address: ");
   Serial.println(address);
 
+  loggit.init();
+
+    // Set up mDNS responder:
+    // - first argument is the domain name, in this example
+    //   the fully-qualified domain name is "esp8266.local"
+    // - second argument is the IP address to advertise
+    //   we send our IP address on the WiFi network
+    if (!MDNS.begin("boiler")) {
+        Serial.println("Error setting up MDNS responder!");
+        loggit.send("failed to start mDNS responder");
+    }
+    else
+      Serial.println("mDNS responder started");
+
+    // Start TCP (HTTP) server
+    Serial.println("TCP server started");
+
+    // Add service to MDNS-SD
+    MDNS.addService("http", "tcp", 80);
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
     sprintf(web_page,index_html,abs_average,boiler_on_threshold,boiler_status==0?"OFF":"ON");
@@ -212,7 +233,6 @@ p_lcd("Searching for WiFi",0,0);
   });
   server.onNotFound(notFound);
   server.begin();  
-  loggit.init();
   loggit.send("up and running\n");
  
   // sgart a timer to count the number of events each second.
