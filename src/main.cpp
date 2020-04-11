@@ -51,11 +51,11 @@ String address = "0.0.0.0";
 bool DEBUG_ON=false;
 bool quiet = false;
 
-unsigned int loop_delay = 30;
+unsigned int loop_delay = 50;
 unsigned int sample_period = 50;
 unsigned int sample_average = 30;
 unsigned int boiler_on_threshold = 120;
-unsigned int boiler_on_threshold_1 = 1400;
+unsigned int boiler_on_threshold_1 = 1800;
 
 AsyncWebServer server(80);
 void handleRoot();              // function prototypes for HTTP handlers
@@ -346,51 +346,9 @@ void drawHistory()
 
 bool read_analogue()
 {
-    int the_diff,abs_value;
-    unsigned int sensor_value;
-    static unsigned int the_total=0,abs_total=0;
-    static unsigned int num_samples=0,abs_samples=0,the_average=0;
-    static unsigned const int max_samples=250,abs_max_samples=250;
     int ma;
     bool detected_on = false;
-   
-    sensor_value = analogRead(A0);
 
-    the_diff = sensor_value - threshold;
-    abs_value = abs(the_diff);
-
-    the_total = the_total + sensor_value;
-    abs_total = abs_total + abs_value;
-
-    if ( num_samples > max_samples )
-        the_total = the_total - the_average;
-    else
-        num_samples = num_samples + 1;
-
-    if ( abs_samples > abs_max_samples )
-        abs_total = abs_total - abs_average;
-    else
-        abs_samples = abs_samples + 1 ;
-
-    the_average = the_total/num_samples;
-    // set the threshold to measure the variation to the long term average.
-    // Basically the audio signal modulates the threshold value above and below the threshold. Threshold is essntially a bias figure
-    //  Overall, the  modulated value should be above the threshold as much as below.
-    threshold = the_average;
-    // The abs average is a measure of how much the audio has mogulated the threshold value
-    abs_average = abs_total / abs_samples;
-
-    if ( abs_average > boiler_on_threshold )
-      detected_on = true;
-    else
-      detected_on = false;
-
-      /*Serial.print(boiler_on_threshold);
-      Serial.print(" ");
-      Serial.print(abs_average);
-      Serial.print(" ");
-      Serial.print(threshold);
-      Serial.print(" ");*/
       Serial.print(measure());
       Serial.print(" ");
       ma = pp_history->moving_average(sample_average);
