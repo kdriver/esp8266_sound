@@ -11,6 +11,7 @@
 #include <driver/adc.h>
 #include <Webtext.h>
 #include <ESPmDNS.h>
+#include <ArduinoNvs.h>
 
 
 #define SCREEN_WIDTH 128 // OLED display width, in pixels
@@ -36,8 +37,8 @@ unsigned int boiler;
 unsigned int boiler_status= BOILER_OFF;
 unsigned int boiler_switched_on_time=0;
 unsigned int abs_average;
-char web_page[8000];
-unsigned char historic_readings[1000];
+char web_page[16384];
+//unsigned char historic_readings[1000];
 
 unsigned long last_time=millis();
 unsigned long on_for=0;
@@ -101,7 +102,6 @@ void diag_influx(unsigned int sound, unsigned int boiler_status)
   String payload;
   payload = "boiler_sound value=" + String(sound);
   payload = payload + ",working=" + String(boiler_status==BOILER_ON?1:0);
-  loggit.send(payload + String("\n"));
   post_it(payload,"boiler_diag");
 }
 
@@ -116,8 +116,8 @@ void tick_influx(String text,unsigned int value)
 
 hw_timer_t *timer=NULL;
 portMUX_TYPE timerMux = portMUX_INITIALIZER_UNLOCKED;
-History *history = new History(300);
-History *pp_history = new History(200);
+//History *history = new History(300);
+History *pp_history = new History(500);
 
 void IRAM_ATTR sound();
 void IRAM_ATTR measureit();
@@ -160,7 +160,7 @@ void p_lcd(String s,unsigned int x,unsigned int y)
   display.display();
 }
 /*
-SETUP
+SETUP=================================================================================================
 */
 void setup() {
 char prog[] = {'|','/','-','\\'};
@@ -222,15 +222,47 @@ p_lcd("Searching for WiFi",0,0);
     // Add service to MDNS-SD
     MDNS.addService("http", "tcp", 80);
 
+    bool ans;
+    ans = NVS.begin("boiler");
+    loggit.send("Initialised NVS access result " + String(ans?" OK \n": " Failed\n"));
+    if (NVS.getInt("b_on_thresh1") == 0  )
+    {
+      
+      NVS.setInt("loop_delay",(uint32_t)50);
+      NVS.setInt("sample_period",(uint32_t)50);
+      NVS.setInt("sample_average",(uint32_t)30);
+      NVS.setInt("b_on_thresh",(uint32_t)120);
+      ans = NVS.setInt("b_on_thresh1",(uint32_t)1800,true);
+      loggit.send("initialise NVRAM values " + String(ans?"True":"False") + "\n");
+    }
+    else
+      loggit.send("read parameters from NVRAM\n");
+
+      boiler_on_threshold = NVS.getInt("b_on_thresh");
+      loop_delay = NVS.getInt("loop_delay");
+      sample_period = NVS.getInt("sample_period");
+      sample_average = NVS.getInt("sample_average");
+      pp_history->update_ma_period(sample_average);
+      boiler_on_threshold_1 = NVS.getInt("b_on_thresh1");
+
+  loggit.send(" boiler on threshold1 set to " + String(boiler_on_threshold_1) );
+  loggit.send("\n boiler on (unused)   set to " + String(boiler_on_threshold) );
+  loggit.send("\n sample Average       set to " + String(sample_average) );
+  loggit.send("\n loop_delay           set to " + String(loop_delay) );
+  loggit.send("\n sample_period        set to " + String(sample_period) + "\n" );
+
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-    sprintf(web_page,index_html,abs_average,boiler_status==0?"OFF":"ON",boiler_on_threshold,loop_delay,sample_period,sample_average,boiler_on_threshold_1);
+    sprintf(web_page,index_html,pp_history->moving_average(sample_average),boiler_status==0?"OFF":"ON",boiler_on_threshold,loop_delay,sample_period,sample_average,boiler_on_threshold_1,(sample_average*loop_delay/1000.0));
     request->send(200, "text/html", web_page);});               // Call the 'handleRoot' function when a client requests URI "/"
 
   server.on("/graph", HTTP_GET, [](AsyncWebServerRequest *request){
     String the_data;
+    String the_mov_ave;
     String labels;
+   
     int length = 0;
     the_data = pp_history->list();
+    the_mov_ave = pp_history->list_of_ma();
     length = pp_history->num_entries()-1;
     labels = String("[");
     for ( int i =0; i < length; i++ )
@@ -241,12 +273,14 @@ p_lcd("Searching for WiFi",0,0);
          labels= labels + String(i) + String(",");
     }
     labels = labels + String("]");
-    sprintf(web_page,graph,labels.c_str(),the_data.c_str());
+    labels = pp_history->list_of_times();
+    sprintf(web_page,graph,labels.c_str(),the_data.c_str(),the_mov_ave.c_str());
     request->send(200, "text/html", web_page);});     
 
   server.on("/get", HTTP_GET, [] (AsyncWebServerRequest *request) {
     String inputMessage;
     String inputParam;
+    bool ans;
     // GET input1 value on <ESP_IP>/get?input1=<inputMessage>
     inputMessage = "No message sent";
     inputParam = "none";
@@ -254,26 +288,33 @@ p_lcd("Searching for WiFi",0,0);
       inputMessage = request->getParam(PARAM_INPUT_1)->value();
       inputParam = PARAM_INPUT_1;
       boiler_on_threshold = inputMessage.toInt();
+      NVS.setInt("b_on_thresh",boiler_on_threshold,true);
     }
     if (request->hasParam(PARAM_INPUT_2)) {
       inputMessage = request->getParam(PARAM_INPUT_2)->value();
       inputParam = PARAM_INPUT_2;
       loop_delay = inputMessage.toInt();
+      NVS.setInt("loop_delay",loop_delay,true);
     }
     if (request->hasParam(PARAM_INPUT_3)) {
       inputMessage = request->getParam(PARAM_INPUT_3)->value();
       inputParam = PARAM_INPUT_3;
       sample_period = inputMessage.toInt();
+      NVS.setInt("sample_period",sample_period,true);
     }
     if (request->hasParam(PARAM_INPUT_4)) {
       inputMessage = request->getParam(PARAM_INPUT_4)->value();
       inputParam = PARAM_INPUT_4;
       sample_average = inputMessage.toInt();
+      NVS.setInt("sample_average",sample_average,true);
+      pp_history->update_ma_period(sample_average);
     }
      if (request->hasParam(PARAM_INPUT_5)) {
       inputMessage = request->getParam(PARAM_INPUT_5)->value();
       inputParam = PARAM_INPUT_5;
       boiler_on_threshold_1 = inputMessage.toInt();
+      ans = NVS.setInt("b_on_thresh1",boiler_on_threshold_1,true);
+      loggit.send("set boiler threshold 1 to " + String(boiler_on_threshold_1) + " result " + String(ans?"OK\n":"Failed\n"));
     }
     Serial.println(inputMessage);
     request->send(200, "text/html", "HTTP GET request sent to your ESP on input field (" 
@@ -331,7 +372,8 @@ unsigned int choose_scale(unsigned int max)
     scale = 100;
        return scale;
 }
-void drawHistory()
+
+/*void drawHistory()
 {
     unsigned int h[51];
     unsigned int events;
@@ -355,7 +397,7 @@ void drawHistory()
        s = s + String(h[i]) + ',';
        display.drawFastVLine(127-i,31-v,v,SSD1306_WHITE);
     }
-    /* now draw a short line indication of the 'on' threshold */
+    //now draw a short line indication of the 'on' threshold 
     unsigned int threshold;
     threshold = (ON_THRESHOLD*32)/scale;
     if ( threshold > 31 ) // Clamp threshold at top of screen . Will happen at low scale values
@@ -364,6 +406,7 @@ void drawHistory()
     loggit.send(s + String(" scale=") + String(scale) + '\n');
     display.display();
 }
+*/
 
 
 bool read_analogue()
@@ -371,31 +414,22 @@ bool read_analogue()
     int ma;
     bool detected_on = false;
 
-      Serial.print(measure());
-      Serial.print(" ");
+      measure();
       ma = pp_history->moving_average(sample_average);
-      Serial.print(ma);
-      Serial.print(" ");
       if  ( ma > boiler_on_threshold_1 )
       {
-        Serial.println(boiler_on_threshold_1);
         detected_on = true;
       }
       else
       {
-          Serial.println(0);
           detected_on = false;
       }
       
     return  detected_on ;
-
 }
-
-
 
 void loop() {
 bool boiler_on = false;
-
 
         delay(loop_delay);
         display.clearDisplay();
@@ -419,7 +453,7 @@ bool boiler_on = false;
           }
            p_lcd("threshold " + String(threshold),0,24);
            ma = pp_history->moving_average(sample_average);
-           history->add(abs_average);
+          // history->add(abs_average);
            diag_influx(ma,boiler_status);
           
           last_time = time_now;
@@ -442,8 +476,6 @@ bool boiler_on = false;
             tell_influx(BOILER_ON,0);
             boiler_status = BOILER_ON;
             boiler_switched_on_time = time_now;
-            //Serial.println("");
-            //Serial.println(text);
           
         }
         if ( (boiler_status == BOILER_ON)  && ( boiler_on == false ) )
@@ -459,30 +491,7 @@ bool boiler_on = false;
             boiler_status = BOILER_OFF;
             sprintf(output,"boiler was on for %d seconds \n",interval);
             loggit.send(output);
-            //Serial.println(output);
         }
 
-        //server.handleClient(); 
 
 }      
-/*
-void handleRoot() {
-
-  String document;
-  //Serial.println("webroot");
-  document = document + "<p>Current level " + String(events,DEC) + "</p>";
-  document = document + history->list(ON_THRESHOLD);
-  server.send(200, "text/html", document);   // Send HTTP status 200 (Ok) and send some text to the browser/client
-}
-
-void handleTest() {
-  String document;
-  document = "<p>Test URL - sending UDP logger message</p>";
-  loggit.send("Testing the logger\n");
-  server.send(200,"text/html",document);
-}
-
-void handleNotFound(){
-  server.send(404, "text/plain", "404: Not found"); // Send HTTP status 404 (Not Found) when there's no handler for the URI in the request
-}
-*/

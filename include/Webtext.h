@@ -17,7 +17,13 @@ const char graph[] PROGMEM = R"rawliteral(
             labels: %s,
             datasets: [{
                 label: 'sound level',
+                borderColor: 'green',
                 data: %s
+            },
+            {
+              label: 'moving average',
+              borderColor: 'blue',
+               data: %s
             }]
         },
         options: {
@@ -43,28 +49,29 @@ const char index_html[] PROGMEM = R"rawliteral(
   <meta name="viewport" content="width=device-width, initial-scale=1">
   </head>
   <body>
-  abs_average %d boiler_status %s
+  current moving average is %f , boiler_status is %s
   </p>
   <form action="/get">
-    On Threshold  : <input type="text" name="boiler_on_threshold">
+    On Threshold(unused)  : <input type="text" name="boiler_on_threshold">
     <input type="submit" value="Submit"> current = %d
   </form><br>
   <form action="/get">
-    Loop delay    : <input type="text" name="loop_delay">
+    How often sample is taken (mS)   : <input type="text" name="loop_delay">
     <input type="submit" value="Submit"> current = %d
   </form><br>
   <form action="/get">
-    Sample Period : <input type="text" name="sample_period">
+    How long a sample is taken for (mS) : <input type="text" name="sample_period">
     <input type="submit" value="Submit"> current = %d
   </form><br>
   <form action="/get">
-    Sample Average : <input type="text" name="sample_average">
+    number of samples for moving average : <input type="text" name="sample_average">
     <input type="submit" value="Submit"> current = %d
   </form><br>
   <form action="/get">
-    threshold 1 : <input type="text" name="boiler_on_threshold_1">
+    Peak to Peak threshold for boiler on : <input type="text" name="boiler_on_threshold_1">
     <input type="submit" value="Submit"> current = %d
   </form><br>
+  <p> Moving average calculated over %f seconds </p>
 </body></html>)rawliteral";
 
 const char* PARAM_INPUT_1 = "boiler_on_threshold";

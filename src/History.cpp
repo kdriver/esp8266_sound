@@ -4,13 +4,16 @@
 
 extern UDPLogger loggit;
 
-History::History(unsigned int size)
+History::History(unsigned int size, unsigned int num_s)
 {
     length = size;
     data = new  unsigned int[size+1];
     ma_data = new  unsigned int[size+1];
+    time_data = new unsigned long[size+1];
+    
     current_index = 0;
     entries = 0;
+    num_samples = num_s;
 }
 
 //  Increment the iterator, and wrap back to zero
@@ -23,11 +26,17 @@ void History::inc(void)
 // Add a new element, overwriting old elements of more than 'size' elements have been added previously
 void History::add(int d)
 {
-    data[current_index] = d;
-    inc();
-   
+    unsigned int ci;
+    ci = current_index;
+    data[ci] = d;
+
+    inc();  
+
     if ( entries < length )
         entries = entries + 1;
+
+    ma_data[ci] = moving_average(num_samples);
+    time_data[ci] = millis();
 }
 // calculate the average of all of the entries
 float History::average(void)
@@ -84,16 +93,84 @@ int History::last()
     }
     return answer;
 }
+void History::update_ma_period(unsigned int value)
+{
+    num_samples= value;
+}
+String History::list_of_ma()
+{
+     int index;
+    int num;
+    String result("[");
+
+    if ( entries < length )
+    {
+        index = 0;
+        num = entries;
+    }
+    else
+    {
+        index = current_index;
+        num = length;
+    }
+    for ( int i = 0 ; i < num;i++)
+    {
+        if ( (i + 1) == num  )
+            result = result +  ma_data[index];
+        else
+            result = result +  ma_data[index]  + String(",");
+            
+        
+        index = (index + 1 ) % length;
+    }
+    result = result + "]";
+    return result;
+}
+String History::list_of_times()
+{
+    int index;
+    int num;
+    unsigned long now ;
+    now = millis();
+
+    String result("[");
+
+    if ( entries < length )
+    {
+        index = 0;
+        num = entries;
+    }
+    else
+    {
+        index = current_index;
+        num = length;
+    }
+    for ( int i = 0 ; i < num;i++)
+    {
+        unsigned long value;
+        value = (now - time_data[index]);
+
+        if ( (i + 1) == num  )
+            result = result + value;
+        else
+            result = result +  value  + String(",");
+            
+        
+        index = (index + 1 ) % length;
+    }
+    result = result + "]";
+    return result;
+}
 //claculate the moving avregae of the last 'smaples' number of samples
 float History::moving_average(unsigned int samples)
 {
     int index;
     int total=0;
-    if ( entries < samples )
-        return 0;
+    if ( entries < samples ) // dont calculate the ma if there arent at least as many entries as samples required
+        return 0.0;
 
-    if ( samples > entries )
-        samples = entries;
+    //if ( samples > entries )
+    //    samples = entries;
     // total the 'samples' previous entries
     index = current_index - 1 ;
     if ( index < 0 )
